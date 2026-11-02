@@ -1,0 +1,29 @@
+# Senhas e chaves: NUNCA vao para o GitHub
+.env
+.env.*
+!.env.example
+
+# Ambiente virtual do Python (recriado com requirements.txt)
+.venv/
+venv/
+
+# Arquivos temporarios gerados pelo Python
+__pycache__/
+*.pyc
+
+# Logs locais
+*.log
+
+# Configuracoes pessoais do Claude Code neste PC
+.claude/settings.local.json
+
+# Lixo do sistema e de editores
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+
+# Dados pessoais de quem usa o projeto: nunca vao para um repositorio publico
+perfil.yaml
+dados/*
+!dados/.gitkeep

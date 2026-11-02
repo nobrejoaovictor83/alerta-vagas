@@ -1,0 +1,121 @@
+# perfil.exemplo.yaml - perfil FICTÍCIO, usado nos testes e como modelo.
+# Para usar o projeto, copie este arquivo para perfil.yaml e troque pelos seus dados.
+# O perfil.yaml fica fora do Git, para os seus dados não irem para um repositório público.
+
+preferencias:
+  modelo_trabalho: [remoto, hibrido, presencial]
+  modelo_preferido: [hibrido, remoto]              # ganham pontos extras na nota
+  cidades_presencial: [Curitiba]                   # presencial/híbrido só nestas cidades
+  remoto_qualquer_cidade: true                     # vaga remota vale de qualquer lugar
+  aceita_mudanca: false
+  regime: [CLT]
+  salario_minimo: 6000                             # R$/mês. Vaga SEM salário informado NÃO é descartada
+  alerta_email_nota_minima: 60                     # lista principal do e-mail: nota >= 60
+  alerta_email_nota_talvez: 40                     # seção "Talvez interesse": nota de 40 a 59
+
+# Cargos de interesse, por prioridade
+cargos:
+  prioridade_1:
+    - Analista de Marketing Digital
+    - Analista de Mídias Sociais
+    - Analista de Conteúdo
+    - Analista de CRM
+    - Analista de SEO
+  prioridade_2:
+    - Analista de Growth
+    - Analista de E-commerce
+    - Analista de Dados (Marketing)
+    - Analista de Inbound
+  prioridade_3:
+    - Analista de Comunicação
+    - Analista de Branding
+    - Analista de Eventos
+
+# Palavras diferentes que valem como a mesma ao comparar títulos de vagas e cargos
+sinonimos_cargo:
+  redes: midias
+  midia: midias
+  social: sociais
+
+# Consultas enviadas para a Adzuna. Cada item de "buscas" gasta 1 chamada por execução.
+busca_adzuna:
+  buscas:
+    - {what: analista, where: Curitiba}
+    - {what: analista remoto}
+  palavras_alternativas:             # a vaga precisa ter pelo menos uma destas
+    - marketing
+    - conteúdo
+    - mídias
+    - crm
+    - seo
+    - growth
+    - ecommerce
+    - comunicação
+    - branding
+
+# Remetentes dos alertas de vagas lidos do Gmail, somente leitura
+alertas_gmail:
+  dias: 3
+  remetentes:
+    - jobalerts-noreply@linkedin.com
+    - no-reply@adzuna.com.br
+    - donotreply@jobalert.indeed.com
+
+senioridade:
+  aceitar: [pleno, senior]
+  evitar: [estagio, trainee, junior, coordenador, gerente, diretor]
+
+competencias:
+  tecnicas:     # palavras que AUMENTAM a nota quando aparecem na vaga
+    - Google Analytics
+    - Google Ads
+    - Meta Ads
+    - RD Station
+    - HubSpot
+    - Canva
+    - WordPress
+    - Looker Studio
+  dominio:
+    - tráfego pago
+    - copywriting
+    - funil de vendas
+    - automação de marketing
+    - e-mail marketing
+    - campanhas
+    - métricas / KPIs
+
+# Lacunas: a vaga não é descartada, mas a nota cai
+lacunas:
+  - alemão fluente
+  - pós-graduação em marketing
+
+# Palavras que DESCARTAM a vaga (no título ou na descrição)
+excluir:
+  - estágio
+  - jovem aprendiz
+  - MEI
+  - comissão
+  - representante comercial
+  - vendas externas
+  # PJ só descarta como tipo de contrato: "PJ" também aparece como tipo de cliente
+  - contratação PJ
+  - regime PJ
+  - vaga PJ
+  - modelo PJ
+  - via PJ
+  - contratação pessoa jurídica
+  - contratação como pessoa jurídica
+  - regime pessoa jurídica
+  - vaga pessoa jurídica
+  - modelo pessoa jurídica
+  - via pessoa jurídica
+
+# Palavras que descartam a vaga somente se estiverem no TÍTULO
+excluir_no_titulo:
+  - associado
+  - associada
+
+# Sozinhos, estes termos não descartam: a nota cai e o e-mail pede para verificar
+termos_alerta_pj:
+  - PJ
+  - pessoa jurídica

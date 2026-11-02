@@ -1,0 +1,3 @@
+requests        # consultar APIs de vagas (Adzuna etc.)
+PyYAML          # ler o perfil.yaml
+python-dotenv   # ler o arquivo .env no PC

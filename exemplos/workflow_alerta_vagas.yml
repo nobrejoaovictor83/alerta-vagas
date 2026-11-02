@@ -1,0 +1,63 @@
+# EXEMPLO. Use somente em um repositorio PRIVADO, copiando este arquivo para
+# .github/workflows/. Em repositorio publico, os logs e os dados gravados ficam visiveis.
+# Roda o alerta de vagas na nuvem, sem depender de nenhum computador ligado.
+name: Alerta de Vagas
+
+on:
+  schedule:
+    # Cron do GitHub e em UTC. Curitiba e UTC-3: 7h, 10h, 13h, 16h, 19h e 22h.
+    # O minuto 7 evita o horario cheio, quando o GitHub costuma atrasar.
+    - cron: "7 1,10,13,16,19,22 * * *"
+  workflow_dispatch: # cria o botao "Run workflow" na aba Actions
+
+# Permite gravar o historico de vagas de volta no repositorio.
+permissions:
+  contents: write
+
+# Nunca duas execucoes ao mesmo tempo: uma poderia atrapalhar o historico da outra.
+concurrency:
+  group: alerta-vagas
+  cancel-in-progress: false
+
+jobs:
+  alerta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Baixar o codigo
+        uses: actions/checkout@v4
+
+      - name: Instalar o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Instalar as bibliotecas
+        run: pip install -r requirements.txt
+
+      - name: Rodar os testes
+        run: python -m unittest
+
+      - name: Buscar vagas e enviar o alerta
+        run: python alerta_vagas.py
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+
+      # Roda mesmo se o passo anterior falhar: as chamadas a Adzuna precisam ficar contadas.
+      - name: Gravar o historico no repositorio
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dados
+          if git diff --cached --quiet; then
+            echo "Historico sem mudancas."
+            exit 0
+          fi
+          git commit -m "Atualiza historico de vagas"
+          git pull --rebase origin main
+          git push
