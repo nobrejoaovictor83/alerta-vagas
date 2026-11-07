@@ -25,6 +25,7 @@ from difflib import SequenceMatcher
 from email import policy
 from email.message import EmailMessage
 from email.utils import parseaddr
+from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -67,6 +68,21 @@ PONTOS_ALERTA_PJ = 10
 
 ALERTA_PJ = "⚠ verificar se é PJ"
 ALERTA_SEM_DESCRICAO = "⚠ alerta sem descrição: confira modelo e regime CLT na página da vaga"
+
+# Como os nomes internos aparecem no e-mail, com acento
+ROTULOS_MODELO = {
+    "hibrido": "Híbrido",
+    "remoto": "Remoto",
+    "presencial": "Presencial",
+    "nao informado": "Não informado",
+}
+ROTULOS_NIVEL = {"junior": "júnior", "pleno": "pleno", "senior": "sênior"}
+ROTULOS_DESCARTE = {
+    "palavra excluida": "palavra excluída",
+    "palavra excluida no titulo": "palavra excluída no título",
+    "salario abaixo do minimo": "salário abaixo do mínimo",
+    "nota abaixo do minimo": "nota abaixo do mínimo",
+}
 
 # Valor mensal menor que este e erro de dado, nao salario real ("R$ 7,4 por mes").
 SALARIO_MENSAL_VALIDO = 1000
@@ -193,7 +209,7 @@ def adzuna_para_vaga(item):
         "id": f"adzuna-{item.get('id')}",
         "fonte": "Adzuna",
         "titulo": item.get("title") or "",
-        "empresa": (item.get("company") or {}).get("display_name") or "Nao informada",
+        "empresa": (item.get("company") or {}).get("display_name") or "Não informada",
         "local": local.get("display_name") or "",
         "regioes": local.get("area") or [],
         "descricao": item.get("description") or "",
@@ -359,7 +375,7 @@ def alerta_indeed_para_vaga(textos, link):
     """Monta a vaga: titulo, empresa, nota da empresa, "- Cidade", salario e descricao."""
     posicao = next(i for i, texto in enumerate(textos) if texto.startswith("- "))
     titulo = textos[0]
-    empresa = textos[1] if posicao > 1 else "Nao informada"
+    empresa = textos[1] if posicao > 1 else "Não informada"
     local = textos[posicao][2:]
     resto = textos[posicao + 1:]
     salario = next((texto for texto in resto if texto.startswith("R$")), "")
@@ -596,17 +612,17 @@ def calcular_nota(vaga, perfil):
     encontradas = [termo for termo in termos if tem_termo(texto, termo)]
     if encontradas:
         nota += min(len(encontradas) * PONTOS_COMPETENCIA, MAX_PONTOS_COMPETENCIAS)
-        motivos.append("competencias: " + ", ".join(encontradas))
+        motivos.append("competências: " + ", ".join(encontradas))
 
     modelo = detectar_modelo(texto)
     if modelo in perfil["preferencias"]["modelo_preferido"]:
         nota += PONTOS_MODELO_PREFERIDO
-        motivos.append(f"modelo {modelo}")
+        motivos.append(f"modelo {ROTULOS_MODELO[modelo].lower()}")
 
     niveis = niveis_do_titulo(titulo, perfil["senioridade"]["aceitar"])
     if niveis:
         nota += PONTOS_SENIORIDADE
-        motivos.append("nivel " + "/".join(niveis))
+        motivos.append("nível " + "/".join(ROTULOS_NIVEL.get(n, n) for n in niveis))
 
     lacunas = [t for t in separar_alternativas(perfil["lacunas"]) if tem_termo(texto, t)]
     if lacunas:
@@ -617,11 +633,11 @@ def calcular_nota(vaga, perfil):
     nota_minima = perfil["preferencias"]["alerta_email_nota_minima"]
     if vaga.get("sem_descricao") and prioridade == 1 and nota < nota_minima:
         nota = nota_minima
-        motivos.append("nota minima pelo cargo, pois o alerta nao traz descricao")
+        motivos.append("nota mínima pelo cargo, pois o alerta não traz descrição")
 
     if ALERTA_PJ in alertas_da_vaga(vaga, perfil):
         nota -= PONTOS_ALERTA_PJ
-        motivos.append("possivel contrato PJ")
+        motivos.append("possível contrato PJ")
 
     return max(0, min(nota, 100)), motivos
 
@@ -679,16 +695,19 @@ def avaliar_vagas(vagas, perfil):
     return principais, talvez, descartes
 
 
+def formatar_salario(salario):
+    if salario is None:
+        return "Não informado"
+    return f"R$ {salario:,.0f}".replace(",", ".")
+
+
 def formatar_vaga(vaga):
-    salario = "Nao informado"
-    if vaga["salario"] is not None:
-        salario = f"R$ {vaga['salario']:,.0f}".replace(",", ".")
     alertas = "".join(f"{alerta}\n" for alerta in vaga["alertas"])
     return (
         f"{vaga['titulo']} - {vaga['empresa']}\n"
         f"{alertas}"
-        f"Local/modelo: {vaga['local']} - {vaga['modelo']}\n"
-        f"Salario: {salario}\n"
+        f"Local/modelo: {vaga['local']} - {ROTULOS_MODELO.get(vaga['modelo'], vaga['modelo'])}\n"
+        f"Salário: {formatar_salario(vaga['salario'])}\n"
         f"Nota: {vaga['nota']}/100\n"
         f"Por que combina: {'; '.join(vaga['motivos'])}\n"
         f"Link: {vaga['link']}\n"
@@ -709,6 +728,83 @@ def montar_email(aprovadas, talvez, avisos):
         blocos.append("===== Talvez interesse =====\n")
         blocos.extend(formatar_vaga_compacta(vaga) for vaga in talvez)
     return assunto, "\n".join(blocos)
+
+
+# --- E-mail em HTML (o texto simples acima vai junto, para quem nao abre HTML) ---
+
+
+def cor_da_nota(nota):
+    if nota >= 80:
+        return "#1e7d32"  # verde
+    if nota >= 60:
+        return "#1565c0"  # azul
+    return "#6d6d6d"  # cinza
+
+
+def vaga_em_html(vaga):
+    link = escape(vaga["link"])
+    modelo = ROTULOS_MODELO.get(vaga["modelo"], vaga["modelo"])
+    alertas = "".join(
+        f'<p style="margin:8px 0 0;font-size:13px;color:#9a6700;">{escape(alerta)}</p>'
+        for alerta in vaga["alertas"]
+    )
+    return f"""
+<tr><td style="padding:18px 0;border-bottom:1px solid #e3e3e3;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr>
+    <td style="vertical-align:top;">
+      <a href="{link}" style="font-size:17px;font-weight:bold;color:#1a1a1a;text-decoration:none;">{escape(vaga["titulo"])}</a>
+      <div style="margin-top:4px;font-size:14px;color:#555;">{escape(vaga["empresa"])} · {escape(vaga["local"])} · {escape(modelo)}</div>
+    </td>
+    <td style="vertical-align:top;text-align:right;white-space:nowrap;padding-left:12px;">
+      <span style="display:inline-block;padding:6px 12px;border-radius:6px;background:{cor_da_nota(vaga["nota"])};color:#fff;font-size:16px;font-weight:bold;">{vaga["nota"]}/100</span>
+    </td>
+  </tr></table>
+  {alertas}
+  <p style="margin:10px 0 0;font-size:14px;color:#333;"><b>Salário:</b> {escape(formatar_salario(vaga["salario"]))}</p>
+  <p style="margin:4px 0 0;font-size:14px;color:#333;"><b>Por que combina:</b> {escape("; ".join(vaga["motivos"]))}</p>
+  <p style="margin:10px 0 0;font-size:14px;"><a href="{link}" style="color:#1565c0;">Ver vaga →</a></p>
+</td></tr>"""
+
+
+def vaga_compacta_em_html(vaga):
+    return f"""
+<tr><td style="padding:10px 0;border-bottom:1px solid #eeeeee;font-size:14px;">
+  <a href="{escape(vaga["link"])}" style="font-weight:bold;color:#1a1a1a;text-decoration:none;">{escape(vaga["titulo"])}</a>
+  <span style="color:#555;"> · {escape(vaga["empresa"])} · {escape(vaga["local"])}</span>
+</td></tr>"""
+
+
+def montar_email_html(aprovadas, talvez, avisos, rodape="Enviado automaticamente pelo Alerta de Vagas."):
+    """Mesmo conteudo do texto simples, com titulo, nota em destaque e uma linha entre vagas."""
+    caixa_avisos = "".join(
+        f'<p style="margin:0 0 16px;padding:10px 12px;border-radius:6px;background:#fff4e5;'
+        f'color:#7a4b00;font-size:14px;">{escape(aviso)}</p>'
+        for aviso in avisos
+    )
+    principais = "".join(vaga_em_html(vaga) for vaga in aprovadas)
+    secao_talvez = ""
+    if talvez:
+        secao_talvez = (
+            '<h2 style="margin:28px 0 4px;font-size:16px;color:#1a1a1a;">Talvez interesse</h2>'
+            '<table width="100%" cellpadding="0" cellspacing="0" role="presentation">'
+            + "".join(vaga_compacta_em_html(vaga) for vaga in talvez)
+            + "</table>"
+        )
+    return f"""<!doctype html>
+<html lang="pt-BR"><body style="margin:0;padding:24px 12px;background:#f2f2f2;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:640px;background:#ffffff;border-radius:8px;">
+<tr><td style="padding:24px 28px 8px;">
+  <h1 style="margin:0;font-size:22px;color:#1a1a1a;">Alerta de Vagas</h1>
+  <p style="margin:6px 0 20px;font-size:14px;color:#555;">{len(aprovadas)} vagas aderentes · {len(talvez)} talvez</p>
+  {caixa_avisos}
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">{principais}</table>
+  {secao_talvez}
+  <p style="margin:24px 0 16px;font-size:12px;color:#888;">{escape(rodape)}</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
 
 
 # --- E-mail ---
@@ -746,13 +842,15 @@ def conectar_gmail(usuario, senha):
     return conexao
 
 
-def enviar_email(usuario, senha, assunto, corpo):
-    """Envia um e-mail de texto. Remetente e destinatario sao a mesma conta."""
+def enviar_email(usuario, senha, assunto, corpo, html=None):
+    """Envia o e-mail em texto e, se houver, em HTML. Remetente e destinatario sao a mesma conta."""
     mensagem = EmailMessage()
     mensagem["Subject"] = assunto
     mensagem["From"] = usuario
     mensagem["To"] = usuario
     mensagem.set_content(corpo)
+    if html:
+        mensagem.add_alternative(html, subtype="html")
 
     with conectar_gmail(usuario, senha) as conexao:
         conexao.send_message(mensagem)
@@ -832,7 +930,7 @@ def registrar_aviso():
 
 def montar_email_aviso(avisos):
     assunto = f"[Alerta de Vagas] Aviso: {avisos[0]}"
-    corpo = "\n".join(avisos) + "\n\nNenhuma vaga nova nesta execucao. O projeto segue com as outras fontes.\n"
+    corpo = "\n".join(avisos) + "\n\nNenhuma vaga nova nesta execução. O projeto segue com as outras fontes.\n"
     return assunto, corpo
 
 
@@ -864,7 +962,8 @@ def executar():
     # Se o envio falhar, nada e gravado e as vagas voltam na proxima execucao.
     if aprovadas or talvez:
         assunto, corpo = montar_email(aprovadas, talvez, avisos)
-        enviar_email(usuario, senha, assunto, corpo)
+        html = montar_email_html(aprovadas, talvez, avisos)
+        enviar_email(usuario, senha, assunto, corpo, html)
         print(f"E-mail enviado: {assunto}")
         if avisos:
             registrar_aviso()
@@ -912,11 +1011,11 @@ def teste_email():
     usuario, senha = ler_credenciais()
     assunto = "[Alerta de Vagas] E-mail de teste"
     corpo = (
-        "Este e-mail de teste mostra como os alertas vao chegar.\n"
-        "A vaga abaixo e apenas um exemplo.\n\n"
+        "Este e-mail de teste mostra como os alertas vão chegar.\n"
+        "A vaga abaixo é apenas um exemplo.\n\n"
         "Analista de Marketing Digital Pleno - Empresa Exemplo\n"
-        "Local/modelo: Curitiba/PR - Hibrido\n"
-        "Salario: R$ 6.500\n"
+        "Local/modelo: Curitiba/PR - Híbrido\n"
+        "Salário: R$ 6.500\n"
         "Nota: 85/100\n"
         "Por que combina: cargo de prioridade 1, Google Ads, Canva, copywriting\n"
         "Link: https://example.com/vaga-exemplo\n"

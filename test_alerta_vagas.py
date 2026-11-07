@@ -234,6 +234,12 @@ class TestVagasVistas(unittest.TestCase):
         with patch.object(av, "coletar_vagas", return_value=(list(vagas), [], list(avisos))):
             return av.executar()
 
+    def test_alerta_sai_com_versao_html(self):
+        self.executar(self.boa())
+        html = self.envio.call_args[0][4]
+        self.assertIn("Analista de Marketing Digital Pleno", html)
+        self.assertIn("/100", html)
+
     def test_link_do_indeed_vai_no_email_mas_nao_no_historico(self):
         nova = {**self.boa("indeed-1"), "fonte": "Indeed", "link": "https://exemplo/rastreio"}
         self.executar(nova)
@@ -356,7 +362,64 @@ class TestEmail(unittest.TestCase):
         self.assertIn("Analista de Growth - Empresa Exemplo", secao)
         self.assertIn("https://example.com/vaga", secao)
         self.assertNotIn("Nota:", secao)
-        self.assertNotIn("Salario:", secao)
+        self.assertNotIn("Salário:", secao)
+
+    def test_texto_do_email_tem_acentos(self):
+        aprovada = {**vaga(), "nota": 70, "motivos": ["cargo"], "modelo": "nao informado",
+                    "alertas": []}
+        _, corpo = av.montar_email([aprovada], [], [])
+        self.assertIn("Salário: Não informado", corpo)
+        self.assertIn("Local/modelo: Curitiba, Parana - Não informado", corpo)
+
+    def test_motivos_da_nota_tem_acentos(self):
+        _, motivos = av.calcular_nota(
+            vaga(titulo="Analista de Marketing Digital Sênior", descricao="Híbrido, Canva"), PERFIL)
+        self.assertIn("competências: Canva", motivos)
+        self.assertIn("modelo híbrido", motivos)
+        self.assertIn("nível sênior", motivos)
+
+
+class TestEmailHtml(unittest.TestCase):
+    def aprovada(self, **campos):
+        return {**vaga(), "nota": 85, "motivos": ["cargo de prioridade 1"], "modelo": "hibrido",
+                "alertas": [], "salario": 7500, **campos}
+
+    def test_tem_titulo_nota_e_link_de_cada_vaga(self):
+        html = av.montar_email_html([self.aprovada()], [], [])
+        self.assertIn("Alerta de Vagas", html)
+        self.assertIn("85/100", html)
+        self.assertIn("Analista de Marketing Digital Pleno", html)
+        self.assertIn('href="https://example.com/vaga"', html)
+        self.assertIn("Híbrido", html)
+        self.assertIn("R$ 7.500", html)
+
+    def test_cor_da_nota_por_faixa(self):
+        self.assertEqual(av.cor_da_nota(85), "#1e7d32")
+        self.assertEqual(av.cor_da_nota(65), "#1565c0")
+        self.assertEqual(av.cor_da_nota(45), "#6d6d6d")
+
+    def test_talvez_interesse_e_avisos_aparecem(self):
+        menor = {**vaga(titulo="Analista de Growth"), "nota": 45}
+        html = av.montar_email_html([self.aprovada()], [menor], [av.AVISO_ADZUNA])
+        self.assertIn("Talvez interesse", html)
+        self.assertIn("Analista de Growth", html)
+        self.assertIn("Adzuna indisponível", html)
+
+    def test_texto_das_vagas_nao_vira_html(self):
+        perigosa = self.aprovada(titulo='Analista <script>alert("x")</script>')
+        html = av.montar_email_html([perigosa], [], [])
+        self.assertNotIn("<script>", html)
+        self.assertIn("&lt;script&gt;", html)
+
+    def test_email_leva_texto_e_html(self):
+        conexao = Mock()
+        conexao.__enter__ = Mock(return_value=conexao)
+        conexao.__exit__ = Mock(return_value=False)
+        with patch.object(av, "conectar_gmail", return_value=conexao):
+            av.enviar_email("conta@example.com", "senha", "Assunto", "texto", "<p>html</p>")
+        mensagem = conexao.send_message.call_args[0][0]
+        tipos = [parte.get_content_type() for parte in mensagem.walk()]
+        self.assertEqual(tipos, ["multipart/alternative", "text/plain", "text/html"])
 
 
 class TestAdzuna(unittest.TestCase):
@@ -566,7 +629,7 @@ class TestExtracaoLinkedin(unittest.TestCase):
         nova = {**vaga(titulo="Analista de Marketing Digital"), "sem_descricao": True}
         nota, motivos = av.calcular_nota(nova, PERFIL)
         self.assertEqual(nota, 60)
-        self.assertIn("nota minima pelo cargo", motivos[-1])
+        self.assertIn("nota mínima pelo cargo", motivos[-1])
         self.assertIn(av.ALERTA_SEM_DESCRICAO, av.alertas_da_vaga(nova, PERFIL))
 
     def test_outros_cargos_sem_descricao_nao_ganham_nota(self):
